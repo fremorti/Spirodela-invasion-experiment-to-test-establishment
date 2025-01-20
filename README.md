@@ -6,4 +6,5 @@
 - dry weight.csv and dry weight2.csv contain the weekly dry weight measurements from both experiments
 - envelopes.csv contains dry weights of two types of envelopes used in the experiment
 - countweight contains dry weight measurements from samples with known number of individuals
-- Bafort_growth.txt contains the measured relative growth rates, used as intrinsic growth rates in figure 2
+- intrisic growth.csv contains the measured intrinsic growth rates that were separately measured and used to compare experimental results to in figure 2
+- run_de_pop.sh is a shell script to call hpc_invasion_de_pop.R, which contains the ODE model fitting. The shell script can be used to run the computer intensive part on an external server.
