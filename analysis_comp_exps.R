@@ -4,9 +4,13 @@ library(patchwork)
 setwd('D:/OneDrive - UGent/Postdoc Terec/polyploidie/Spirodela experimenten/competition experiment2023')
 options(mc.cores = 4, max.print = 10000)
 
+########
+# data #
+########
+
 #load data tetraploid invasion experiment (exp1)
 comp1_ <- read.csv('FCM/comp2022.csv', header = 1)%>%as_tibble()%>%
-  mutate(line = factor(line, labels = c("9242", "9346", "9316", "0013")), rep = factor(rep))%>%unite("pop", line:salt, remove = FALSE, sep = "")%>%
+  mutate(line = factor(line, labels = c("9242", "9346", "9316", "0013")), rep = factor(rep), salt = factor(salt, labels = c("control", "salt")))%>%unite("pop", line:salt, remove = FALSE, sep = "")%>%
   unite("popt", c(pop,week), remove = FALSE)%>%rename(diploids_ = diploids, tetraploids_ = tetraploids)
 str(comp1_)
 
@@ -26,27 +30,17 @@ ggplot(comp1, aes(x = week, y = tetrf))+
   geom_smooth(method = lm)+
   facet_grid(salt~line)
 
-for (line_ in c("9242", "9346", "9316", "0013")){
-  print(ggplot(comp1%>%filter(line == line_), aes(x = week, y = tetrf, color = rep))+
-          geom_point(size = 2)+
-          geom_line()+
-          labs(title = line_)+
-          #geom_smooth(method = lm)+
-          facet_grid(salt~rep))
-}
-
-
 # load calibration data, add NA-columns for the imputation later. However, I add values to salt (as many 1's as 0's) because BRMS cannot impute categorical variables
 # more on this later
 cal <- read.csv('FCM/cal.csv', header = 1)
 data_cal <- as_tibble(cal)%>%rename(diploids = 'nuclei_res.diploids...Count', tetraploids = 'nuclei_res.tetraploids...Count', real_tetraploids = 'rtet', real_total = 'rtot')%>%
-  mutate(source = 'calibration', pop = "Cal", iter = NA, week = NA, salt = rep(c(0,1), length.out = n()), rep = NA, popt = NA, line = factor(line, labels = c('9242', '9346', '9316', '0013')),
+  mutate(source = 'calibration', pop = "Cal", iter = NA, week = NA, salt = factor(rep(c(0,1), length.out = n()), labels = c("control", "salt")), rep = NA, popt = NA, line = factor(line, labels = c('9242', '9346', '9316', '0013')),
          tetrf = tetraploids/(tetraploids+diploids), realf = real_tetraploids/real_total)
 
 #let's combine calibration and experimental data
 rdata <- rbind(comp1%>%select(diploids, tetraploids, real_tetraploids, real_total, source, pop, iter, week, salt, line, rep, popt, tetrf, realf), 
                data_cal%>%select(diploids, tetraploids, real_tetraploids, real_total, source, pop, iter, week, salt, line, rep, popt, tetrf, realf))%>%
-  #and not the di-, tetraploid counts are important, but their relative frequency. I also immediately add transformed proportions to logit scale.
+  #and not the di-, tetraploid counts are important, but their relative frequency. I also add a column for logit transformed .
   mutate(logittetrf = logit_scaled(tetrf), logitrealf = logit_scaled(realf), 
          rep = factor(rep), iter = factor(iter), line = factor(line, labels = c('9242', '9346', '9316', '0013')), salt = factor(salt))
 rdata_1_nocal <- rdata%>%filter(source == 'experiment')
@@ -54,7 +48,7 @@ rdata_1_nocal <- rdata%>%filter(source == 'experiment')
 
 #load data diploid invasion experiment data (exp2)
 comp2 <- read.csv('FCM/comp2023.csv', header = T)%>%as_tibble()%>%mutate(rep = factor(rep))%>%rename(diploids = colnames(.)[2], tetraploids = colnames(.)[3])%>%
-  mutate(totaln = diploids+tetraploids, tetrf = tetraploids/totaln)%>%mutate(line = factor(line, labels = c("9242", "9346", "9316", "0013")), source = 'experiment', real_tetraploids = NA, real_total = NA, iter = NA)%>%
+  mutate(totaln = diploids+tetraploids, tetrf = tetraploids/totaln)%>%mutate(line = factor(line, labels = c("9242", "9346", "9316", "0013")), source = 'experiment', real_tetraploids = NA, real_total = NA, iter = NA, salt = factor(salt, labels = c("control", "salt")))%>%
   unite("pop", line:salt, remove = FALSE, sep = "")%>%
   unite("popt", c(pop,week), remove = FALSE)
 str(comp2)
@@ -72,14 +66,6 @@ ggplot(comp2, aes(x = week, y = tetrf))+
   geom_smooth(method = lm)+
   facet_grid(salt~line)
 
-for (line_ in c("9242", "9346", "9316", "0013")){
-  print(ggplot(comp2%>%filter(line == line_), aes(x = week, y = tetrf, color = rep))+
-          geom_point(size = 2)+
-          geom_line()+
-          labs(title = line_)+
-          #geom_smooth(method = lm)+
-          facet_grid(salt~rep))
-}
 
 #let's combine calibration and experimental data for exp2
 rdata_2 <- rbind(comp2%>%select(diploids, tetraploids, real_tetraploids, real_total, source, pop, iter, week, salt, line, rep, popt), 
@@ -91,9 +77,52 @@ rdata_2 <- rbind(comp2%>%select(diploids, tetraploids, real_tetraploids, real_to
   filter(week < 15 | is.na(week))
 rdata_2_nocal <- rdata_2%>%filter(source == 'experiment')
 rdata_all <- rbind(comp1_%>%rename(diploids = diploids_, tetraploids = tetraploids_)%>%select(diploids, tetraploids, week, salt, line, rep)%>%mutate(source = "tetraploid invasion"),
-      comp2%>%select(diploids, tetraploids, source, week, salt, line, rep)%>%mutate(source = "diploid invasion"), 
-      data_cal%>%select(diploids, tetraploids, source, week, salt, line, rep))
+                   comp2%>%select(diploids, tetraploids, source, week, salt, line, rep)%>%mutate(source = "diploid invasion"), 
+                   data_cal%>%select(diploids, tetraploids, source, week, salt, line, rep))
+#save a full dataset of both experiments combined
 write.csv(rdata_all, file = 'FCM/supplementary_table_fcm_data.csv')
+
+#load intrinsic growth data
+intr <- read.csv("FCM/intrinsic growth.csv", header = T)%>%tibble()%>%mutate(RGR = log(count7)-log(count0), salt = factor(ifelse(NaCl == 0, "control", "salt")), strain = factor(strain))
+intr%>%filter(dry == 0)%>%ggplot(aes(x = ploidy, y = RGR, color = batch))+
+  geom_jitter(height = 0, width = 0.05)+
+  facet_grid(salt~strain)
+
+#load dry weight data of tetraploid invasion experiment (exp1)
+w_data1_ <- read.csv('FCM/dry weight.csv', header = 1)%>%as_tibble()%>%
+  mutate(rep = factor(rep), salt = factor(salt, levels = c(0, 1), labels = c('control', 'salt')), line = factor(line, labels = c('9242', '9346', '9316', '0013')), size = factor(size), weight = weight*1000)%>%
+  unite("pop", line:salt, remove = FALSE, sep = "")
+
+#load data on empty envelopes, big and small
+envelopes <- read.csv('FCM/envelopes.csv', header = 1)%>%as_tibble()%>%mutate(size = factor(size), weight = weight*1000)
+#mean and sd of big and small envelopes
+env_sum <- envelopes%>%group_by(size)%>%summarise(mean = mean(weight), sd = sd(weight))
+
+#define the proportion of surface area that was sampled each week
+surface_prop = (3.5*0.5)^2*pi/14/9
+
+w_data1 <- w_data1_%>%mutate(envmean = ifelse(size == 'big', env_sum$mean[1], env_sum$mean[2]), envsd = ifelse(size == 'big', env_sum$sd[1], env_sum$sd[2]))%>%
+  mutate(dw = weight-envmean, dw_tot = dw/surface_prop, weight_tot = weight/surface_prop, index = 1:n())
+
+
+#load dry weight data of diploid invasion experiment (exp2)
+w_data2 <- read.csv('FCM/dry weight2.csv', header = 1)%>%as_tibble()%>%
+  mutate(rep = factor(rep), salt = factor(salt, levels = c(0, 1), labels = c('control', 'salt')), line = factor(line, labels = c('9242', '9346', '9316', '0013')), size = factor(size), weight = weight*1000)%>%
+  unite("pop", line:salt, remove = FALSE, sep = "")%>%
+  mutate(envmean = ifelse(size == 'big', env_sum$mean[1], env_sum$mean[2]), envsd = ifelse(size == 'big', env_sum$sd[1], env_sum$sd[2]))%>%
+  mutate(dw = weight-envmean, dw_tot = dw/surface_prop, weight_tot = weight/surface_prop, index = 1:n())
+
+#load count-to-weight data
+cw_data <- read.csv('FCM/countweight.csv', header = T)%>%as_tibble()%>%mutate(rep = factor(rep), ploidy = factor(ploidy, labels = c('2n', '4n')))%>%rename(dw = dry.weight)%>%
+  mutate(dwmg = dw*1000, line = factor(line, labels = c("9242", "9346", "9316", "0013")))
+
+
+ggplot(cw_data, aes(x = count, y = dwmg))+
+  geom_point(aes(color = ploidy))+
+  geom_smooth(method = "lm", aes(color = ploidy))+
+  facet_grid(.~line)
+
+
 ####################################################################################################
 # Model 1: strain specific calibration of observed tetraploid proportions using imputation in exp1 #
 ####################################################################################################
@@ -154,22 +183,40 @@ ggplot(rdata_est, aes(tetrf, cal))+
   geom_point(color = 'blue')+
   facet_grid(salt~line)
 
-#new (dummy) dataset for expected values
-mod1_nd <- rdata%>%filter(source == 'calibration', is.finite(logitrealf))%>%select(c('logitrealf', line))
-#calculate expected values from the posterior
-pmod1 <- fitted(mod1, newdata = mod1_nd, re_formula = NA, resp = 'logittetrf', probs = c(0.09, 0.91))%>%
-  as_tibble()%>%mutate(mod1_nd, across(c('Estimate', Q9, Q91, logitrealf), inv_logit_scaled), )%>%rename(realf = logitrealf)
 
-#plot calibration data and estimated relation (fig. S2)
-ggplot(pmod1, aes(x = realf, y = Estimate, color = line, fill = line))+
-  geom_line()+
-  geom_point(data = rdata%>%filter(source == "calibration"), aes(x = realf, y = tetrf), size = 1.2)+
-  geom_ribbon(aes(ymin=Q9, ymax=Q91), alpha = 0.25, color = NA)+
-  geom_abline(slope = 1)+
-  scale_color_brewer(palette = "Dark2")+
-  scale_fill_brewer(palette = "Dark2")+
-  labs(title = 'calibration of tetraploid proportion of nuclei to individuals', x = 'tetraploid proportion of individuals', y = 'tetraploid proportion of nuclei (fcm)', color = 'strain', fill = 'strain')+
-  theme(legend.position = 'top', legend.direction="horizontal")
+#define function for expected predicted plot with from the sumarized fitted output
+epplot <-  function(model, data, newdata, x_var, y_var, group_var, title, x_label, y_label, facet_var = NULL, re_formula = NULL, probs = c(0.09, 0.91), resp = NULL, logit = T) {
+  # Calculate expected values from the posterior
+  fitted_values <- fitted(model, newdata = newdata, re_formula = re_formula, probs = probs, resp = resp) %>%
+    as_tibble() %>%
+    mutate(across(c(1,3,4), ifelse(logit, inv_logit_scaled, function(x) x)), newdata)
+  
+  # Generate the plot
+  plot <- ggplot(fitted_values, aes(x = .data[[x_var]], y = Estimate, color = .data[[group_var]])) +
+    geom_point(data = data, aes(y = .data[[y_var]]), size = 1.4) +
+    geom_line(show.legend = FALSE) +
+    geom_ribbon(aes(ymin = Q9, ymax = Q91, fill = .data[[group_var]], color = .data[[group_var]]), alpha = 0.25) +
+    labs(title = title, x = x_label, y = y_label, fill = "", color = "") +
+    scale_fill_brewer(palette = 'Dark2') +
+    scale_color_brewer(palette = 'Dark2') +
+    theme(legend.position = "bottom", legend.direction = "horizontal",
+          panel.background = element_rect(fill = "white", colour = '#1E64C8'),
+          strip.background = element_rect(fill = "#1E64C8"), strip.text = element_text(colour = 'white', size = 14))
+  
+  # Add facet if specified
+  if (!is.null(facet_var)) {
+    plot <- plot + facet_grid(. ~ .data[[facet_var]])
+  }
+  
+  return(plot)
+}
+
+
+#new (dummy) dataset for expected values
+mod1_nd <- rdata%>%filter(source == 'calibration', is.finite(logitrealf))%>%select(c('logitrealf', line))%>%mutate(realf = inv_logit_scaled(logitrealf))
+epplot(mod1, rdata%>%filter(source == "calibration"), mod1_nd, "realf", "tetrf", "line", 
+       'calibration of tetraploid proportion of nuclei to individuals', 'tetraploid proportion of individuals', 'tetraploid proportion of nuclei (fcm)',
+       resp = "logittetrf", re_formula = NA)+geom_abline(slope = 1, size = 1)
 
 
 #construct a list of datasets of imputed realfs that all will be fitted to the model that infers effect of treatments
@@ -182,8 +229,10 @@ for (n in 1:nrow(mod1_imppoints)){
   mod1_impdfs[[n]] <- mod1_impdf
 }
 
+#After the imputational model, we implement an inferential model on the imputed datasets
 #Model that infers effect of line, salt and week on the tetraploid proportions. Posterior of calibrated (imputed) proportions will be used to make inference on: 
 #cfr 'imputation before model fitting': https://cran.r-project.org/web/packages/brms/vignettes/brms_missings.html)
+
 #model with unfixed intercepts
 mod1imp_bf <- bf(logitrealf ~ line*salt*week + (1+week|pop))
 #model with fixed intercepts for the knwon start proportion
@@ -192,7 +241,7 @@ mod1impf_bf <- bf(logitrealf ~ 0 + Intercept + line:week*salt:week + (0+week|pop
 get_prior(mod1imp_bf, data = mod1_impdfs)
 mod1imp_prior <- c(
   set_prior("normal(-3,1)", class = "Intercept"),
-  set_prior("normal(0,0.5)", class = "b", coef = c('line9346', 'line9316', 'line0013', 'salt1', 'line9346:salt1', 'line9316:salt1', 'line0013:salt1')),
+  set_prior("normal(0,0.5)", class = "b", coef = c('line9346', 'line9316', 'line0013', 'saltsalt', 'line9346:saltsalt', 'line9316:saltsalt', 'line0013:saltsalt')),
   set_prior("normal(0,0.5)", class = "b"),
   set_prior("cauchy(0.5,0.5)", class = "sigma"),
   set_prior("cauchy(0,0.2)", class = "sd"),
@@ -208,67 +257,53 @@ mod1impf_prior <- c(
 #brm_multiple models the inference model over a list of data sets and pools results
 #fit model for unfixed intercepts
 mod1imp <- brm_multiple(mod1imp_bf,
-                         data = mod1_impdfs, backend = "cmdstanr",
-                         prior = mod1imp_prior)
+                        data = mod1_impdfs, backend = "cmdstanr",
+                        prior = mod1imp_prior)
 
 save(mod1imp, file = "FCM/fits_/mod1imp.rda")
 load('FCM/fits_/mod1imp.rda')
 
-mod1imp_pmod_uf <- fitted(mod1imp, newdata = mod1imp_nd, re_formula = NA, probs = c(0.09, 0.91))%>%
-  as_tibble()%>%mutate(mod1imp_nd, across(c(Estimate, Q9, Q91), inv_logit_scaled))
-
-ggplot(mod1imp_pmod_uf%>%mutate(salt = factor(salt, labels = c("control", "salt"))), aes(x = week, y = Estimate, class = salt))+
-  geom_point(data = rdata_est%>%mutate(salt = factor(salt, labels = c("control", "salt"))), aes(x = week, y = mean, color = salt), size = 1.4)+
-  geom_line(aes(color = salt), show.legend=FALSE)+
-  geom_ribbon(aes(ymin=Q9, ymax=Q91, color = salt, fill = salt), alpha = 0.25)+
-  labs(title = 'measured proportion of polyploids from flow cytometry', y = 'proportion of polyploids', x = 'week')+
-  facet_grid(.~line)+
-  ylim(c(0, 0.21))+
-  scale_fill_brewer(palette = 'Dark2')+
-  scale_color_brewer(palette = 'Dark2')+
-  theme(legend.position = c(0.9, 0.9), legend.direction="horizontal")
+mod1imp_nd <- tibble(unique(rdata_1_nocal[c('week', 'line', 'salt')]))
+epplot(mod1imp,rdata_est, mod1imp_nd, "week", "mean", "salt", 
+       'measured proportion of polyploids from flow cytometry', 'week', 'proportion of polyploids', facet_var = "line", re_formula = NA)
 
 
 #fit model with fixed intercepts
 mod1impf <- brm_multiple(mod1impf_bf,
-                        data = mod1_impdfs, backend = "cmdstanr",
-                        prior = mod1impf_prior)
+                         data = mod1_impdfs, backend = "cmdstanr",
+                         prior = mod1impf_prior)
 save(mod1impf, file = "FCM/fits_/mod1impf.rda")
 load('FCM/fits_/mod1impf.rda')
 
 pp_check(mod1impf)
-## NA warning is normal, remember that it can only check against calibration data here, since it's NA in the input for experiment data
 
-#summary(mod1impf, depth = 2)
 mod1impf$fit
 #check rhats of separate imputed posterior data sets
 round(mod1impf$rhats, 2)
 
-mod1imp_nd <- tibble(unique(rdata_1_nocal[c('week', 'line', 'salt')]))
 #calculate expected values from the posterior
 mod1imp_pmod <- fitted(mod1impf, newdata = mod1imp_nd, re_formula = NA, probs = c(0.09, 0.91))%>%
   as_tibble()%>%mutate(mod1imp_nd, across(c(Estimate, Q9, Q91), inv_logit_scaled))
+epplot(mod1impf,rdata_est, mod1imp_nd, "week", "mean", "salt", 
+       'measured proportion of polyploids from flow cytometry', 'week', 'proportion of polyploids', facet_var = "line", re_formula = NA)
 
 
 
-#######
-# intrinsic growth
-intr <- read.csv("FCM/intrinsic growth.csv", header = T)%>%tibble()%>%mutate(RGR = log(count7)-log(count0), salt = factor(ifelse(NaCl == 0, 0, 1)), strain = factor(strain))
-intr%>%filter(dry == 0)%>%ggplot(aes(x = ploidy, y = RGR, color = batch))+
-  geom_jitter(height = 0, width = 0.05)+
-  facet_grid(factor(NaCl)~strain)
-
+###############################
+# intrinsic growth rate model #
+###############################
+#to compare tetraploid proportion change in competition with differences in growth rate of both cytotypes, estimate relative growth rate from intrinsic growth data
 
 intrr_modbf <- bf(RGR ~ salt*strain*ploidy + (1|batch))
 get_prior(intrr_modbf, data = intr)
 
 intrr_mod <- brm(formula = intrr_modbf,
-                data = intr%>%filter(dry == 0),
-                prior = c(set_prior("normal(1,1)", class = "Intercept"),
-                          set_prior("normal(0,0.2)", class = "b"),
-                          set_prior("cauchy(0,0.2)", class = "sd"),
-                          set_prior("cauchy(0,1)", class = "sigma")),
-                silent = 0, iter = 4000, backend = "cmdstanr")
+                 data = intr%>%filter(dry == 0),
+                 prior = c(set_prior("normal(1,1)", class = "Intercept"),
+                           set_prior("normal(0,0.2)", class = "b"),
+                           set_prior("cauchy(0,0.2)", class = "sd"),
+                           set_prior("cauchy(0,1)", class = "sigma")),
+                 silent = 0, iter = 4000, backend = "cmdstanr")
 save(intrr_mod, file = "FCM/intrr_mod.rda")
 load("FCM/intrr_mod.rda")
 
@@ -284,7 +319,7 @@ ggplot(pintrr, aes(x = ploidy, y = Estimate, color = batch))+
   geom_jitter(data = intr%>%filter(howdry == 0), aes(y = RGR), size = 1.2, height = 0, width = 0.1)+
   geom_pointrange(aes(ymin = Q9, ymax = Q91))+
   labs(title = 'intrinsic growth')+
-  facet_grid(factor(NaCl)~strain)
+  facet_grid(salt~strain)
 
 
 intrr_r <- pintrr%>%select(-Est.Error, -Q9, -Q91)%>%pivot_wider(names_from = ploidy, values_from = Estimate, names_prefix = "r_")%>%
@@ -293,11 +328,14 @@ intrr_r <- pintrr%>%select(-Est.Error, -Q9, -Q91)%>%pivot_wider(names_from = plo
 #table S7
 write.csv(intrr_r, file = "FCM/rs.csv")
 
-
-a <- expand_grid(salt = c(0, 1), unique(intr%>%select("strain")))%>%mutate(base = "b_ploidytet", saltc = ifelse(salt == 1, "b_salt1:ploidytet", "0"), 
+#calculate a posterior of differences in rgr between each tetraploid and their diploid
+#first, construct a grid of strain-treatment combinations that contains the appropriate linear terms for that combination
+a <- expand_grid(salt = c(0, 1), unique(intr%>%select("strain")))%>%mutate(base = "b_ploidytet", saltc = ifelse(salt == 1, "b_saltsalt:ploidytet", "0"), 
                                                                            strainc = ifelse(strain == "13", "0", paste0("b_strain", strain, ":ploidytet")),
-                                                                           saltstrainc = ifelse(salt == 1 & strain != "13", paste0("b_salt1:strain", strain, ":ploidytet"), "0"))
+                                                                           saltstrainc = ifelse(salt == 1 & strain != "13", paste0("b_saltsalt:strain", strain, ":ploidytet"), "0"))
+#draw from posterior and add a column for zeros
 intr_post<-as_draws_df(intrr_mod)%>%tibble()%>%mutate("0" = 0)
+#for each row, sum the linear terms with names defined in "a"
 intr_diff <- apply(a, 1, function(row) intr_post[row["base"]]+intr_post[row["saltc"]]+intr_post[row["strainc"]]+intr_post[row["saltstrainc"]])%>%unlist()%>%tibble()%>%
   mutate(slice(a, rep(1:nrow(a), each = nrow(intr_post))), salt = factor(salt, labels = c('control', 'salt')))%>%rename(delta_r = ".")
 intr_diff%>%
@@ -313,50 +351,25 @@ expg_sim_s <- intr_diff_s%>%expand_grid(week = 1:12)%>%pivot_longer(cols = c("me
          tet_inv = tet_inv_odds/(1+tet_inv_odds), dip_inv = dip_inv_odds/(1+dip_inv_odds),
          line = factor(strain, levels = c("13", "9242", "9316", "9346"), labels = c("0013", "9242", "9316", "9346")))                                                   
 
+#add tetraploid invasion proportion over 12 weeks to the experimental change in tetraploid proportion 
+epplot(mod1impf,rdata_est, mod1imp_nd, "week", "mean", "salt", 
+       'measured proportion of polyploids from flow cytometry', 'week', 'proportion of polyploids', facet_var = "line", re_formula = NA)+
+  geom_line(data = expg_sim_s%>%filter(m == "mean"), aes(x = week, y = tet_inv, color = salt), size = 1, lty = 2)
 
 
-#posterior predictive expected value distribution
-ggplot(mod1imp_pmod%>%mutate(salt = factor(salt, labels = c("control", "salt"))), aes(x = week, y = Estimate, class = salt))+
-  geom_line(data = expg_sim_s%>%filter(m == "mean"), aes(x = week, y = tet_inv, color = salt), size = 1, lty = 2)+
-  geom_point(data = rdata_est%>%mutate(salt = factor(salt, labels = c("control", "salt"))), aes(x = week, y = mean, color = salt), size = 1.4)+
-  geom_line(aes(color = salt), show.legend=FALSE)+
-  geom_ribbon(aes(ymin=Q9, ymax=Q91, color = salt, fill = salt), alpha = 0.25)+
-  labs(title = 'measured proportion of polyploids from flow cytometry', y = 'proportion of polyploids', x = 'week')+
-  facet_grid(.~line)+
-  ylim(c(0, 0.21))+
-  scale_fill_brewer(palette = 'Dark2')+
-  scale_color_brewer(palette = 'Dark2')+
-  theme(legend.position = c(0.9, 0.9), legend.direction="horizontal")
 
-
-#posterior slopes of all 8 groups (line:salt)
+#posterior slopes of all 8 groups (line:salt), to be combined with diploid invasion data
 pmod1f_slopes <- as_draws_df(mod1impf, variable = "(_|:)week", regex = TRUE)%>%as_tibble()%>%
   mutate('9242' = .$'b_line9242:week', '9346'= .$'b_line9346:week', '9316'= .$'b_line9316:week', '0013'= .$'b_line0013:week')%>%
-  mutate('9242:salt' = .$'9242'+.$'b_week:salt1', '9346:salt'= .$'9346'+.$'b_week:salt1'+ .$'b_line9346:week:salt1', '9316:salt'= .$'9316'+.$'b_week:salt1' + .$'b_line9316:week:salt1', '0013:salt'= .$'0013'+.$'b_week:salt1' + .$'b_line0013:week:salt1')%>%
-  select(c('9242', '9346', '9316', '0013', '9242:salt', '9346:salt', '9316:salt', '0013:salt'))%>%pivot_longer(everything(), names_to = c('line', 'salt'), names_sep = ':', values_to = 'slope')%>%mutate(line = factor(line, levels = c('9242', '9346', '9316', '0013')), salt = factor(salt =='salt'&!is.na(salt)))
+  mutate('9242:salt' = .$'9242'+.$'b_week:saltsalt', '9346:salt'= .$'9346'+.$'b_week:saltsalt'+ .$'b_line9346:week:saltsalt', '9316:salt'= .$'9316'+.$'b_week:saltsalt' + .$'b_line9316:week:saltsalt', '0013:salt'= .$'0013'+.$'b_week:saltsalt' + .$'b_line0013:week:saltsalt')%>%
+  select(c('9242', '9346', '9316', '0013', '9242:salt', '9346:salt', '9316:salt', '0013:salt'))%>%pivot_longer(everything(), names_to = c('line', 'salt'), names_sep = ':', values_to = 'slope')%>%mutate(line = factor(line, levels = c('9242', '9346', '9316', '0013')), salt = ifelse(is.na(salt), "control", salt))
 
-ggplot(pmod1f_slopes, aes(x = line, y = slope, fill = salt))+
-  geom_violin(draw_quantiles = c(0.09, 0.5, 0.91), alpha = 0.3)+
-  geom_hline(yintercept = 0, lty = 2)+
-  scale_fill_brewer(palette = 'Dark2')+
-  labs(title = 'slopes for lines in control or salt treatment', y = 'slope', x = 'strain')+
-  theme(legend.position = 'bottom', panel.grid.major = element_blank(), panel.grid.minor = element_blank(), 
-        panel.background = element_rect(fill = 'grey98', color = c('#1E64C8')))
 
 #posterior slopes of all 8 groups (line:salt); estimated (unfixed) intercept
 pmod1_slopes <- as_draws_df(mod1imp, variable = "week$", regex = TRUE)%>%as_tibble()%>%
   mutate('9242' = .$'b_week', '9346'= .$'b_week'+ .$'b_line9346:week', '9316'= .$'b_week' + .$'b_line9316:week', '0013'= .$'b_week' + .$'b_line0013:week')%>%
-  mutate('9242:salt' = .$'9242'+.$'b_salt1:week', '9346:salt'= .$'9346'+.$'b_salt1:week'+ .$'b_line9346:salt1:week', '9316:salt'= .$'9316'+.$'b_salt1:week' + .$'b_line9316:salt1:week', '0013:salt'= .$'0013'+.$'b_salt1:week' + .$'b_line0013:salt1:week')%>%
-  select(c('9242', '9346', '9316', '0013', '9242:salt', '9346:salt', '9316:salt', '0013:salt'))%>%pivot_longer(everything(), names_to = c('line', 'salt'), names_sep = ':', values_to = 'slope')%>%mutate(line = factor(line, levels = c('9242', '9346', '9316', '0013')), salt = factor(salt =='salt'&!is.na(salt)))
-
-ggplot(pmod1_slopes, aes(x = line, y = slope, fill = salt))+
-  geom_violin(draw_quantiles = c(0.09, 0.5, 0.91), alpha = 0.3)+
-  geom_hline(yintercept = 0, lty = 2)+
-  scale_fill_brewer(palette = 'Dark2')+
-  labs(title = 'slopes for lines in control or salt treatment', y = 'slope', x = 'strain')+
-  theme(legend.position = 'bottom', panel.grid.major = element_blank(), panel.grid.minor = element_blank(), 
-        panel.background = element_rect(fill = 'grey98', color = c('#1E64C8')))
-
+  mutate('9242:salt' = .$'9242'+.$'b_saltsalt:week', '9346:salt'= .$'9346'+.$'b_saltsalt:week'+ .$'b_line9346:saltsalt:week', '9316:salt'= .$'9316'+.$'b_saltsalt:week' + .$'b_line9316:saltsalt:week', '0013:salt'= .$'0013'+.$'b_saltsalt:week' + .$'b_line0013:saltsalt:week')%>%
+  select(c('9242', '9346', '9316', '0013', '9242:salt', '9346:salt', '9316:salt', '0013:salt'))%>%pivot_longer(everything(), names_to = c('line', 'salt'), names_sep = ':', values_to = 'slope')%>%mutate(line = factor(line, levels = c('9242', '9346', '9316', '0013')), salt = ifelse(is.na(salt), "control", salt))
 
 ##################################
 # Model 1.2: same model for exp2 #
@@ -377,8 +390,8 @@ mod1_2_prior <- c(
   set_prior("normal(0,1)", nlpar = c("bias"), class = "b", resp = "logittetrf"),
   set_prior("normal(0,1)", nlpar = c("samplef"), class = "b", resp = "logittetrf"),
   set_prior("cauchy(0,0.1)", class = "sigma", resp = c("logittetrf"))+
-  set_prior("cauchy(0,1)", class = "sigma", resp = c("logitrealf"))+
-  set_prior("normal(0,2)", class = "Intercept", resp = "logitrealf")
+    set_prior("cauchy(0,1)", class = "sigma", resp = c("logitrealf"))+
+    set_prior("normal(0,2)", class = "Intercept", resp = "logitrealf")
 )
 
 
@@ -389,9 +402,6 @@ mod1_2 <- brm(mvbf(mod1_2_bfobs, mod1_2_bfexpe),
 save(mod1_2, file = "FCM/fits_/mod1_2.rda")
 load('FCM/fits_/mod1_2.rda')
 pp_check(mod1_2,resp="logittetrf")
-
-pp_check(mod1_2,resp="logitrealf") 
-summary(mod1_2, depth = 2)
 mod1_2$fit
 
 #calibration effect (estimated - measured proportion)
@@ -415,19 +425,11 @@ ggplot(rdata_2_est, aes(tetrf, cal))+
   facet_grid(salt~line)
 
 
-mod1_2_nd <- rdata_2%>%filter(source == 'calibration', is.finite(logitrealf))%>%select(c('logitrealf', line))
+mod1_2_nd <- rdata_2%>%filter(source == 'calibration', is.finite(logitrealf))%>%select(c('logitrealf', line))%>%mutate(realf = inv_logit_scaled(logitrealf))
 #calculate expected values from the posterior
-pmod1_2 <- fitted(mod1_2, newdata = mod1_2_nd, re_formula = NA, resp = 'logittetrf', probs = c(0.09, 0.91))%>%
-  as_tibble()%>%mutate(mod1_2_nd, across(c('Estimate', Q9, Q91, logitrealf), inv_logit_scaled), )%>%rename(realf = logitrealf)
-
-#plot calibration data and estimated relation
-ggplot(pmod1_2, aes(x = realf, y = Estimate, color = line))+
-  geom_line()+
-  geom_point(data = rdata_2%>%filter(source == "calibration"), aes(x = realf, y = tetrf), size = 1.2)+
-  geom_ribbon(aes(ymin=Q9, ymax=Q91), alpha = 0.25)+
-  geom_abline(slope = 1)+
-  labs(title = 'calibration')+
-  theme(legend.position = 'top', legend.direction="horizontal")
+epplot(mod1_2,rdata_2%>%filter(source == "calibration"), mod1_2_nd, "realf", "tetrf", "line", 
+       'calibration of tetraploid proportion of nuclei to individuals', 'tetraploid proportion of individuals', 'tetraploid proportion of nuclei (fcm)',
+       resp = "logittetrf", re_formula = NA)+geom_abline(slope = 1, size = 1)
 
 #list of datasets with posteriorly drawn realfs
 mod1_2_imppoints <- as_draws_df(mod1_2) %>%tibble()%>%
@@ -444,7 +446,7 @@ for (n in 1:nrow(mod1_2_imppoints)){
 rdata_2_nocalimp <- rdata_2_nocal%>%mutate(mod1_2avimp)
 
 #calibration effect on tetraploid proportion, illustrated for line 0013 in salt
-r_corr <- rdata_2_nocalimp%>%filter(line == "0013", salt == 1)%>%select(popt, week, tetrf, mean, q09, q91)%>%mutate(jweek = runif(n(), week-0.2, week+0.2))%>%rename(real = mean, fcm = tetrf)%>%
+r_corr <- rdata_2_nocalimp%>%filter(line == "0013", salt == "salt")%>%select(popt, week, tetrf, mean, q09, q91)%>%mutate(jweek = runif(n(), week-0.2, week+0.2))%>%rename(real = mean, fcm = tetrf)%>%
   pivot_longer(cols = c(fcm, real), names_to = "m", values_to = "ptetr")
 ggplot(r_corr, (aes(x = jweek, y = ptetr)))+
   geom_point(aes(shape = m, color = m, group = popt))+
@@ -452,7 +454,7 @@ ggplot(r_corr, (aes(x = jweek, y = ptetr)))+
   scale_x_continuous(breaks = c(2,4,6,8,10,12))+
   scale_color_brewer(palette = "Dark2", name = "", labels = c("fcm (nuclei)", "real (ind)"))+
   scale_shape(name = "", labels = c("fcm (nuclei)", "real (ind)"))+
-  labs(title = "correction of fcm measurement", x = 'time (weeks)', y = "tetraploid proportion")+
+  labs(title = "correction of fcm measurement (in 0013)", x = 'time (weeks)', y = "tetraploid proportion")+
   theme(legend.position = "bottom", legend.direction="horizontal",
         panel.background = element_rect(fill = "white", colour = '#1E64C8'),
         strip.background = element_rect(fill = "#1E64C8"), strip.text = element_text(colour = 'white', size = 14))
@@ -466,7 +468,7 @@ mod1_2impf_bf <- bf(logitrealf ~ 0 + Intercept + line:week + salt:week +  line:w
 get_prior(mod1_2impf_bf, data = mod1_2_impdfs)
 mod1_2imp_prior <- c(
   set_prior("normal(3,1)", class = "Intercept"),
-  set_prior("normal(0,0.5)", class = "b", coef = c('line9346', 'line9316', 'line0013', 'salt1', 'line9346:salt1', 'line9316:salt1', 'line0013:salt1')),
+  set_prior("normal(0,0.5)", class = "b", coef = c('line9346', 'line9316', 'line0013', 'saltsalt', 'line9346:saltsalt', 'line9316:saltsalt', 'line0013:saltsalt')),
   set_prior("normal(0,0.5)", class = "b"),
   set_prior("cauchy(0.5,0.5)", class = "sigma"),
   set_prior("cauchy(0,0.2)", class = "sd"),
@@ -488,132 +490,58 @@ mod1_2imp <- brm_multiple(mod1_2imp_bf,
 save(mod1_2imp, file = "FCM/fits_/mod1_2imp.rda")
 load('FCM/fits_/mod1_2imp.rda')
 pp_check(mod1_2imp)
-## NA warning is normal, remember that it can only check against calibration data here, since it's NA in the input for experiment data
-
-summary(mod1_2imp, depth = 2)
 mod1_2imp$fit
 round(mod1_2imp$rhats, 2)
 
 mod1_2imp_nd <- tibble(unique(rdata_2_nocal[c('week', 'line', 'salt')]))
 #calculate expected values from the posterior
-mod1_2imp_pmod_uf <- fitted(mod1_2imp, newdata = mod1_2imp_nd, re_formula = NA, probs = c(0.09, 0.91))%>%
-  as_tibble()%>%mutate(mod1_2imp_nd, across(c(Estimate, Q9, Q91), inv_logit_scaled))
-
-#posterior predictive expected value distribution
-ggplot(mod1_2imp_pmod_uf%>%filter(week < 15)%>%mutate(salt = factor(salt, labels = c('control', 'salt'))), aes(x = week, y = Estimate, class = salt))+
-  geom_line(data = expg_sim_s%>%filter(m == "mean"), aes(x = week, y = dip_inv, color = salt), size = 1, lty = 2)+
-  geom_point(data = rdata_2_est%>%filter(week < 15)%>%mutate(salt = factor(salt, labels = c('control', 'salt'))), aes(x = week, y = mean, color = salt), size = 1.4)+
-  geom_line(aes(color = salt), show.legend=FALSE)+
-  geom_ribbon(aes(ymin=Q9, ymax=Q91, color = salt, fill = salt), alpha = 0.25)+
-  labs(title = 'measured proportion of polyploids from flow cytometry', y = 'proportion of polyploids', x = 'week')+
-  ylim(c(0, 1))+
-  facet_grid(.~line)+
-  scale_fill_brewer(palette = 'Dark2')+
-  scale_color_brewer(palette = 'Dark2')+
-  theme(legend.position = c(0.13, 0.1), legend.direction="horizontal")
+epplot(mod1_2imp,rdata_2_est%>%filter(week < 15), mod1_2imp_nd, "week", "mean", "salt", 
+       'proportion of tetraploids from diploid invasion experiment', 'week', 'tetraploid', facet_var = "line", re_formula = NA)+
+  geom_line(data = expg_sim_s%>%filter(m == "mean"), aes(x = week, y = dip_inv, color = salt), size = 1, lty = 2)
 
 
 mod1_2impf <- brm_multiple(mod1_2impf_bf,
-                          data = mod1_2_impdfs, 
-                          #backend = "cmdstanr",
-                          prior = mod1_2impf_prior, chains = 4, iter = 2000, cores = 4, silent = 0
-                          )
+                           data = mod1_2_impdfs, 
+                           #backend = "cmdstanr",
+                           prior = mod1_2impf_prior, chains = 4, iter = 2000, cores = 4, silent = 0
+)
 
 save(mod1_2impf, file = "FCM/fits_/mod1_2impf.rda")
 load('FCM/fits_/mod1_2impf.rda')
-
 pp_check(mod1_2impf)
-## NA warning is normal, remember that it can only check against calibration data here, since it's NA in the input for experiment data
-
-summary(mod1_2impf, depth = 2)
 mod1_2impf$fit
 round(mod1_2impf$rhats, 2)
 
 
 mod1_2imp_nd <- tibble(unique(rdata_2_nocal[c('week', 'line', 'salt')]))
 #calculate expected values from the posterior
-mod1_2imp_pmod <- fitted(mod1_2impf, newdata = mod1_2imp_nd, re_formula = NA, probs = c(0.09, 0.91))%>%
-  as_tibble()%>%mutate(mod1_2imp_nd, across(c(Estimate, Q9, Q91), inv_logit_scaled))
-
-#posterior predictive expected value distribution
-ggplot(mod1_2imp_pmod%>%filter(week < 15)%>%mutate(salt = factor(salt, labels = c('control', 'salt'))), aes(x = week, y = Estimate, class = salt))+
-  geom_line(data = expg_sim_s%>%filter(m == "mean"), aes(x = week, y = dip_inv, color = salt), size = 1, lty = 2)+
-  geom_point(data = rdata_2_est%>%filter(week < 15)%>%mutate(salt = factor(salt, labels = c('control', 'salt'))), aes(x = week, y = mean, color = salt), size = 1.4)+
-  geom_line(aes(color = salt), show.legend=FALSE)+
-  geom_ribbon(aes(ymin=Q9, ymax=Q91, color = salt, fill = salt), alpha = 0.25)+
-  labs(title = 'measured proportion of polyploids from flow cytometry', y = 'proportion of polyploids', x = 'week')+
-  ylim(c(0, 1))+
-  facet_grid(.~line)+
-  scale_fill_brewer(palette = 'Dark2')+
-  scale_color_brewer(palette = 'Dark2')+
-  theme(legend.position = c(0.13, 0.1), legend.direction="horizontal")
-
-
-
-
-#posterior differences in slopes (salt-control)
-pmod1_2f_dslopes <- as_draws_df(mod1_2impf, variable = "week:salt1$", regex = TRUE)%>%as_tibble()%>%
-  mutate('9242' = .$'b_week:salt1', '9346'= .$'b_week:salt1'+ .$'b_line9346:week:salt1', '9316'= .$'b_week:salt1' + .$'b_line9316:week:salt1', '0013'= .$'b_week:salt1' + .$'b_line0013:week:salt1')%>%
-  select(c('9242', '9346', '9316', '0013'))%>%pivot_longer(everything(), names_to = 'line', values_to = 'dslope')%>%mutate(line = factor(line, levels = c('9242', '9346', '9316', '0013')))
-
-ggplot(pmod1_2f_dslopes, aes(x = line, y = dslope))+
-  geom_violin(draw_quantiles = c(0.09, 0.5, 0.91), alpha = 0.3, fill = '#1E64C8')+
-  geom_hline(yintercept = 0, lty = 2)+
-  #scale_fill_brewer(palette = 'Dark2')+
-  labs(title = 'differences in slope (salt - control)', y = 'difference in slope (salt - control)', x = 'strain')+
-  theme(legend.position = 'none', panel.grid.major = element_blank(), panel.grid.minor = element_blank(), 
-        panel.background = element_rect(fill = 'grey98', color = c('#1E64C8')))
-
-
-#posterior differences in slopes (salt-control); estimated (unfixed) intercept
-pmod1_2_dslopes <- as_draws_df(mod1_2imp, variable = "salt1:week$", regex = TRUE)%>%as_tibble()%>%
-  mutate('9242' = .$'b_salt1:week', '9346'= .$'b_salt1:week'+ .$'b_line9346:salt1:week', '9316'= .$'b_salt1:week' + .$'b_line9316:salt1:week', '0013'= .$'b_salt1:week' + .$'b_line0013:salt1:week')%>%
-  select(c('9242', '9346', '9316', '0013'))%>%pivot_longer(everything(), names_to = 'line', values_to = 'dslope')%>%mutate(line = factor(line, levels = c('9242', '9346', '9316', '0013')))
-
-ggplot(pmod1_2_dslopes, aes(x = line, y = dslope))+
-  geom_violin(draw_quantiles = c(0.09, 0.5, 0.91), alpha = 0.3, fill = '#1E64C8')+
-  geom_hline(yintercept = 0, lty = 2)+
-  #scale_fill_brewer(palette = 'Dark2')+
-  labs(title = 'differences in slope (salt - control)', y = 'difference in slope (salt - control)', x = 'strain')+
-  theme(legend.position = 'none', panel.grid.major = element_blank(), panel.grid.minor = element_blank(), 
-        panel.background = element_rect(fill = 'grey98', color = c('#1E64C8')))
+epplot(mod1_2impf, rdata_2_est%>%filter(week < 15), mod1_2imp_nd, "week", "mean", "salt", 
+       'proportion of tetraploids from diploid invasion experiment', 'week', 'tetraploid', facet_var = "line", re_formula = NA)+
+  geom_line(data = expg_sim_s%>%filter(m == "mean"), aes(x = week, y = dip_inv, color = salt), size = 1, lty = 2)
 
 
 #posterior slopes of all 8 groups (line:salt)
 pmod1_2f_slopes <- as_draws_df(mod1_2impf, variable = "(_|:)week", regex = TRUE)%>%as_tibble()%>%
   mutate('9242' = .$'b_line9242:week', '9346'= .$'b_line9346:week', '9316'= .$'b_line9316:week', '0013'= .$'b_line0013:week')%>%
-  mutate('9242:salt' = .$'9242'+.$'b_week:salt1', '9346:salt'= .$'9346'+.$'b_week:salt1'+ .$'b_line9346:week:salt1', '9316:salt'= .$'9316'+.$'b_week:salt1' + .$'b_line9316:week:salt1', '0013:salt'= .$'0013'+.$'b_week:salt1' + .$'b_line0013:week:salt1')%>%
-  select(c('9242', '9346', '9316', '0013', '9242:salt', '9346:salt', '9316:salt', '0013:salt'))%>%pivot_longer(everything(), names_to = c('line', 'salt'), names_sep = ':', values_to = 'slope')%>%mutate(line = factor(line, levels = c('9242', '9346', '9316', '0013')), salt = factor(salt =='salt'&!is.na(salt)))
+  mutate('9242:salt' = .$'9242'+.$'b_week:saltsalt', '9346:salt'= .$'9346'+.$'b_week:saltsalt'+ .$'b_line9346:week:saltsalt', '9316:salt'= .$'9316'+.$'b_week:saltsalt' + .$'b_line9316:week:saltsalt', '0013:salt'= .$'0013'+.$'b_week:saltsalt' + .$'b_line0013:week:saltsalt')%>%
+  select(c('9242', '9346', '9316', '0013', '9242:salt', '9346:salt', '9316:salt', '0013:salt'))%>%pivot_longer(everything(), names_to = c('line', 'salt'), names_sep = ':', values_to = 'slope')%>%mutate(line = factor(line, levels = c('9242', '9346', '9316', '0013')), salt = ifelse(is.na(salt), "control", salt))
 
-ggplot(pmod1_2f_slopes, aes(x = line, y = slope, fill = salt))+
-  geom_violin(draw_quantiles = c(0.09, 0.5, 0.91), alpha = 0.3)+
-  geom_hline(yintercept = 0, lty = 2)+
-  scale_fill_brewer(palette = 'Dark2')+
-  labs(title = 'slopes for lines in control or salt treatment', y = 'slope', x = 'strain')+
-  theme(legend.position = 'bottom', panel.grid.major = element_blank(), panel.grid.minor = element_blank(), 
-        panel.background = element_rect(fill = 'grey98', color = c('#1E64C8')))
 
 #posterior slopes of all 8 groups (line:salt); estimated (unfixed) intercept
 pmod1_2_slopes <- as_draws_df(mod1_2imp, variable = "week$", regex = TRUE)%>%as_tibble()%>%
   mutate('9242' = .$'b_week', '9346'= .$'b_week'+ .$'b_line9346:week', '9316'= .$'b_week' + .$'b_line9316:week', '0013'= .$'b_week' + .$'b_line0013:week')%>%
-  mutate('9242:salt' = .$'9242'+.$'b_salt1:week', '9346:salt'= .$'9346'+.$'b_salt1:week'+ .$'b_line9346:salt1:week', '9316:salt'= .$'9316'+.$'b_salt1:week' + .$'b_line9316:salt1:week', '0013:salt'= .$'0013'+.$'b_salt1:week' + .$'b_line0013:salt1:week')%>%
-  select(c('9242', '9346', '9316', '0013', '9242:salt', '9346:salt', '9316:salt', '0013:salt'))%>%pivot_longer(everything(), names_to = c('line', 'salt'), names_sep = ':', values_to = 'slope')%>%mutate(line = factor(line, levels = c('9242', '9346', '9316', '0013')), salt = factor(salt =='salt'&!is.na(salt)))
-
-ggplot(pmod1_2_slopes, aes(x = line, y = slope, fill = salt))+
-  geom_violin(draw_quantiles = c(0.09, 0.5, 0.91), alpha = 0.3)+
-  geom_hline(yintercept = 0, lty = 2)+
-  scale_fill_brewer(palette = 'Dark2')+
-  labs(title = 'slopes for lines in control or salt treatment', y = 'slope', x = 'strain')+
-  theme(legend.position = 'bottom', panel.grid.major = element_blank(), panel.grid.minor = element_blank(), 
-        panel.background = element_rect(fill = 'grey98', color = c('#1E64C8')))
-
-
-
+  mutate('9242:salt' = .$'9242'+.$'b_saltsalt:week', '9346:salt'= .$'9346'+.$'b_saltsalt:week'+ .$'b_line9346:saltsalt:week', '9316:salt'= .$'9316'+.$'b_saltsalt:week' + .$'b_line9316:saltsalt:week', '0013:salt'= .$'0013'+.$'b_saltsalt:week' + .$'b_line0013:saltsalt:week')%>%
+  select(c('9242', '9346', '9316', '0013', '9242:salt', '9346:salt', '9316:salt', '0013:salt'))%>%pivot_longer(everything(), names_to = c('line', 'salt'), names_sep = ':', values_to = 'slope')%>%mutate(line = factor(line, levels = c('9242', '9346', '9316', '0013')), salt = ifelse(is.na(salt), "control", salt))
 
 
 ##################################
 # plot both experiments together #
 ##################################
+mod1imp_pmod <- fitted(mod1impf, newdata = mod1imp_nd, re_formula = NA, probs = c(0.09, 0.91))%>%
+  as_tibble()%>%mutate(mod1imp_nd, across(c(Estimate, Q9, Q91), inv_logit_scaled))
+mod1_2imp_pmod <- fitted(mod1_2impf, newdata = mod1_2imp_nd, re_formula = NA, probs = c(0.09, 0.91))%>%
+  as_tibble()%>%mutate(mod1_2imp_nd, across(c(Estimate, Q9, Q91), inv_logit_scaled))
+
 #combine model posterior expected prediction and the data of tetraploid and diploid invasion experiment
 mod1_together <- rbind(mod1_2imp_pmod%>%mutate(minority = 'diploid'),
                        mod1imp_pmod%>%mutate(minority = 'tetraploid'))%>%mutate(minority = factor(minority), salt = factor(salt, labels = c('control', 'salt')))
@@ -644,22 +572,12 @@ ggplot(mod1_together%>%mutate(salt = factor(salt, labels = c('control', 'salt'))
         strip.background = element_rect(fill = "#1E64C8"), strip.text = element_text(colour = 'white', size = 14))
 
 
-#on logit scale
-ggplot(mod1_together%>%mutate(salt = factor(salt, labels = c('control', 'salt'))), aes(x = week, y = logit_scaled(Estimate), color = salt))+
-  geom_point(data = rdata_together, aes(x = week, y = logit_scaled(mean), shape = minority), size = 1.4)+
-  geom_line(aes(color = salt, class = minority), show.legend=FALSE)+
-  geom_ribbon(aes(ymin=logit_scaled(Q9), ymax=logit_scaled(Q91), color = salt, fill = salt, class = minority), alpha = 0.25)+
-  labs(title = 'measured proportion of polyploids from flow cytometry (logit scale)', y = 'logit of proportion of polyploids', x = 'week')+
-  scale_fill_brewer(palette = 'Dark2')+
-  scale_color_brewer(palette = 'Dark2')+
-  facet_grid(.~line)+
-  theme(legend.position = "bottom", legend.direction="horizontal",
-        panel.background = element_rect(fill = "white", colour = '#1E64C8'),
-        strip.background = element_rect(fill = "#1E64C8"), strip.text = element_text(colour = 'white', size = 14))
-
 #combine posterior for models with unfixed intercepts
 mod1_together_uf <- rbind(mod1_2imp_pmod_uf%>%mutate(minority = 'diploid'),
-                       mod1imp_pmod_uf%>%mutate(minority = 'tetraploid'))%>%mutate(minority = factor(minority), salt = factor(salt, labels = c('control', 'salt')))
+                          mod1imp_pmod_uf%>%mutate(minority = 'tetraploid'))%>%mutate(minority = factor(minority), salt = factor(salt, labels = c('control', 'salt')))
+
+mod1imp_pmod_uf <- fitted(mod1imp, newdata = mod1imp_nd, re_formula = NA, probs = c(0.09, 0.91))%>%
+  as_tibble()%>%mutate(mod1imp_nd, across(c(Estimate, Q9, Q91), inv_logit_scaled))
 
 #fig. S5, upper
 ggplot(mod1_together_uf%>%mutate(salt = factor(salt, labels = c('control', 'salt'))), aes(x = week, y = Estimate, color = salt))+
@@ -681,7 +599,7 @@ ggplot(mod1_together_uf%>%mutate(salt = factor(salt, labels = c('control', 'salt
 #posterior of slopes (fig 3)
 pmod1_slopestogether <- rbind(pmod1_2f_slopes%>%mutate(minority = 'diploid'),
                               pmod1f_slopes%>%mutate(minority = 'tetraploid'))%>%
-  mutate(salttext = ifelse(salt==TRUE, 'salt', 'c'))%>%unite(linesalt, c(line, salttext), remove = F)%>%
+  mutate(salttext = ifelse(salt=="salt", 'salt', 'c'))%>%unite(linesalt, c(line, salttext), remove = F)%>%
   mutate(linesalt = ordered(linesalt, levels = c('9242_c', '9242_salt', '9346_c', '9346_salt', '9316_c', '9316_salt', '0013_c', '0013_salt')))
 ggplot(pmod1_slopestogether%>%mutate(salt = factor(salt, labels = c('control', 'salt'))), aes(x = linesalt, y = slope, fill = salt))+
   geom_violin(draw_quantiles = c(0.09, 0.5, 0.91), alpha = 0.3, position=position_dodge(width=0), aes(lty = minority))+
@@ -695,10 +613,10 @@ ggplot(pmod1_slopestogether%>%mutate(salt = factor(salt, labels = c('control', '
 
 #posterior of slopes with unfixed intercept (fig. S5, middle) 
 pmod1_slopestogether_uf <- rbind(pmod1_2_slopes%>%mutate(minority = 'diploid'),
-                              pmod1_slopes%>%mutate(minority = 'tetraploid'))%>%
-  mutate(salttext = ifelse(salt==TRUE, 'salt', 'c'))%>%unite(linesalt, c(line, salttext), remove = F)%>%
+                                 pmod1_slopes%>%mutate(minority = 'tetraploid'))%>%
+  mutate(salttext = ifelse(salt=="salt", 'salt', 'c'))%>%unite(linesalt, c(line, salttext), remove = F)%>%
   mutate(linesalt = ordered(linesalt, levels = c('9242_c', '9242_salt', '9346_c', '9346_salt', '9316_c', '9316_salt', '0013_c', '0013_salt')))
-ggplot(pmod1_slopestogether_uf%>%mutate(salt = factor(salt, labels = c('control', 'salt'))), aes(x = linesalt, y = slope, fill = salt))+
+ggplot(pmod1_slopestogether_uf, aes(x = linesalt, y = slope, fill = salt))+
   geom_violin(draw_quantiles = c(0.09, 0.5, 0.91), alpha = 0.3, position=position_dodge(width=0), aes(lty = minority))+
   geom_hline(yintercept = 0, lty = 2)+
   scale_fill_brewer(palette = 'Dark2')+
@@ -708,37 +626,11 @@ ggplot(pmod1_slopestogether_uf%>%mutate(salt = factor(salt, labels = c('control'
         panel.background = element_rect(fill = 'grey98', color = c('#1E64C8')),
         legend.key = element_rect(fill = NA, color = NA))
 
-# posterior of differences of slopes 
-pmod1_dslopestogether <- rbind(pmod1_2f_dslopes%>%mutate(minority = 'diploid'),
-                               pmod1f_dslopes%>%mutate(minority = 'tetraploid'))%>%mutate(minority = factor(minority))
-ggplot(pmod1_dslopestogether, aes(x = line, y = dslope, fill = minority))+
-  geom_violin(draw_quantiles = c(0.09, 0.5, 0.91), alpha = 0.3)+
-  geom_hline(yintercept = 0, lty = 2)+
-  scale_fill_brewer(palette = 'Dark2')+
-  labs(title = 'differences in slope (salt - control)', y = 'difference in slope (salt - control)', x = 'strain')+
-  theme(legend.position = "bottom", panel.grid.major = element_blank(), panel.grid.minor = element_blank(), 
-        panel.background = element_rect(fill = 'grey98', color = c('#1E64C8')))
-
-# plots with predictive expected per replicate
+# plots with expected predicted per replicate
 mod1popimp_nd <- tibble(unique(rdata_1_nocal[c('week', 'line', 'salt', 'pop', 'rep')]))
 #calculate expected values from the posterior
 mod1popimp_pmod <- fitted(mod1impf, newdata = mod1popimp_nd, probs = c(0.09, 0.91))%>%
   as_tibble()%>%mutate(mod1popimp_nd, across(c(Estimate, Q9, Q91), inv_logit_scaled))
-
-#posterior predictive expected value distribution
-(ppp1 <- ggplot(mod1popimp_pmod%>%filter(week < 15)%>%mutate(salt = factor(salt, labels = c('control', 'salt'))), aes(x = week, y = Estimate, color = salt, class = rep))+
-  geom_point(data = rdata_est%>%filter(week < 15)%>%mutate(salt = factor(salt, labels = c('control', 'salt'))), aes(x = week, y = mean, color = salt), size = 1.4)+
-  geom_line(aes(color = salt), show.legend=FALSE)+
-  #geom_ribbon(aes(ymin=Q9, ymax=Q91, color = salt, fill = salt), alpha = 0.25)+
-  labs(y = 'proportion of polyploids', x = 'week')+
-  ylim(c(0, NA))+
-  scale_fill_brewer(palette = 'Dark2')+
-  scale_color_brewer(palette = 'Dark2')+
-  scale_x_continuous(breaks = c(2,4,6,8,10,12))+
-  facet_grid(.~line)+
-  theme(legend.position = "none",
-        panel.background = element_rect(fill = "white", colour = '#1E64C8'),
-        strip.background = element_rect(fill = "#1E64C8"), strip.text = element_text(colour = 'white', size = 14)))
 
 mod1_2popimp_nd <- tibble(unique(rdata_2_nocal[c('week', 'line', 'salt', 'pop', 'rep')]))
 #calculate expected values from the posterior
@@ -763,55 +655,13 @@ ggplot(mod1pop_together%>%mutate(salt = factor(salt, labels = c('control', 'salt
         panel.background = element_rect(fill = "white", colour = '#1E64C8'),
         strip.background = element_rect(fill = "#1E64C8"), strip.text = element_text(colour = 'white', size = 14))
 
-##########
-# dry weight simulation
-####################
 
-#known measurement error of 0.5
-m_err <- 0.5
-#simulate lognormal real plant and observed plant mass
-sim1_data <- tibble(n = 1:1000)%>%mutate(m_err = m_err,
-                                        log_real_mass = rnorm(n(), -2, 1),
-                                        real_mass = exp(log_real_mass),
-                                        obs_mass = rnorm(n(), real_mass, m_err),
-                                        index = 1:n())
+#################################################################################################################################################
+# dry weight exp 1 in logistic model                                                                                                            #
+# model 2.1: model dry weight by substracting mean weight of envelopes from total measured weights and accounting for the added sd by envelopes #
+#################################################################################################################################################
 
-bf_sim1 <- bf(obs_mass ~ exp(I), sigma = 0 + m_err,
-              I ~ 1 + (1|index), nl = T)
-get_prior(bf_sim1, data = sim1_data)
-m_sim1 <- brm(data = sim1_data, 
-             bf_sim1,
-             backend = "cmdstanr",
-             prior = c(
-               set_prior("normal(0,1)", class = "b", nlpar = "I"),
-               set_prior("cauchy(0,1)", class = "sd", nlpar = "I")),
-             iter = 2000, warmup = 1000, silent = 0)
-
-plot(m_sim1)
-pp_check(m_sim1)
-m_sim1$fit
-#####################################################################################################################
-# dry weight exp 1 in logistic model                                                                                  #
-# model 2.1: calibrate measured dry weight by substracting mean weight and accounting for the added sd by envelopes #
-#####################################################################################################################
-
-w_data1_ <- read.csv('FCM/dry weight.csv', header = 1)%>%as_tibble()%>%
-  mutate(rep = factor(rep), salt = factor(salt), line = factor(line, labels = c('9242', '9346', '9316', '0013')), size = factor(size), weight = weight*1000)%>%
-  unite("pop", line:salt, remove = FALSE, sep = "")
-
-#data on empty envelopes, big and small
-envelopes <- read.csv('FCM/envelopes.csv', header = 1)%>%as_tibble()%>%mutate(size = factor(size), weight = weight*1000)
-#mean and sd of big and small envelopes
-env_sum <- envelopes%>%group_by(size)%>%summarise(mean = mean(weight), sd = sd(weight))
-
-#the proportion of surface area that was sampled each weak
-surface_prop = (3.5*0.5)^2*pi/14/9
-
-w_data1 <- w_data1_%>%mutate(envmean = ifelse(size == 'big', env_sum$mean[1], env_sum$mean[2]), envsd = ifelse(size == 'big', env_sum$sd[1], env_sum$sd[2]))%>%
-  mutate(dw = weight-envmean, dw_tot = dw/surface_prop, weight_tot = weight/surface_prop, index = 1:n())
-
-
-bf_wK_1 <- bf(dw ~ L/(1+exp(-k*(week-x0)))*exp(I), 
+bf_wK_1 <- bf(dw_tot ~ L/(1+exp(-k*(week-x0)))*exp(I), 
               nlf(L~exp(logL)),
               nlf(k~exp(logk)),
               logL~ line*salt + (1|pop), 
@@ -822,22 +672,22 @@ bf_wK_1 <- bf(dw ~ L/(1+exp(-k*(week-x0)))*exp(I),
 
 get_prior(bf_wK_1, data = w_data1)
 mod_wK_1 <-brm(data = w_data1, family = gaussian,
-              #make use of measurement error capibilities of brms to correct for the variance introduced by 
-              formula = bf_wK_1,
-              backend = "cmdstanr",
-              prior = c(
-                set_prior("cauchy(0,2)", class = "sigma"),
-                set_prior("normal(0,0.5)", class = "b", nlpar = c("logk"))
-                ,set_prior("normal(0,1)", class = "b", nlpar = c("logk"), coef = "Intercept")
-                ,set_prior("normal(0,0.5)", class = "b", nlpar = c("logL"))
-                ,set_prior("normal(5,1)", class = "b", nlpar = c("logL"), coef = "Intercept")
-                ,set_prior("normal(0,0.5)", class = "b", nlpar = c("x0"))
-                ,set_prior("normal(0,2)", class = "b", nlpar = c("x0"), coef = "Intercept")
-                ,set_prior("cauchy(0,0.1)", class = "sd", nlpar = c("logk"))
-                ,set_prior("cauchy(0,0.1)", class = "sd", nlpar = c("x0"))
-                ,set_prior("cauchy(0,1)", class = "sd", nlpar = c("logL"))),
-              iter = 4000, warmup = 1000,
-              save_pars = save_pars(latent = TRUE), silent = 0)
+               #make use of measurement error capibilities of brms to correct for the variance introduced by 
+               formula = bf_wK_1,
+               backend = "cmdstanr",
+               prior = c(
+                 set_prior("cauchy(0,2)", class = "sigma"),
+                 set_prior("normal(0,0.5)", class = "b", nlpar = c("logk"))
+                 ,set_prior("normal(0,1)", class = "b", nlpar = c("logk"), coef = "Intercept")
+                 ,set_prior("normal(0,0.5)", class = "b", nlpar = c("logL"))
+                 ,set_prior("normal(5,1)", class = "b", nlpar = c("logL"), coef = "Intercept")
+                 ,set_prior("normal(0,0.5)", class = "b", nlpar = c("x0"))
+                 ,set_prior("normal(0,2)", class = "b", nlpar = c("x0"), coef = "Intercept")
+                 ,set_prior("cauchy(0,0.1)", class = "sd", nlpar = c("logk"))
+                 ,set_prior("cauchy(0,0.1)", class = "sd", nlpar = c("x0"))
+                 ,set_prior("cauchy(0,1)", class = "sd", nlpar = c("logL"))),
+               iter = 4000, warmup = 1000,
+               save_pars = save_pars(latent = TRUE), silent = 0)
 
 save(mod_wK_1, file = "FCM/fits_/mod_wK_1.rda")
 load("FCM/fits_/mod_wK_1.rda")
@@ -845,29 +695,17 @@ load("FCM/fits_/mod_wK_1.rda")
 mod_wK_1$fit
 pp_check(mod_wK_1)
 
-ndmod_wK_1 <- tibble(week = rep(1:12, each = 8), salt = factor(rep(0:1, 12, each = 4)), line = rep(unique(rdata$line), 24))%>%
+ndmod_wK_1 <- tibble(week = rep(1:12, each = 8), salt = factor(rep(c("control", "salt"), 12, each = 4)), line = rep(unique(rdata$line), 24))%>%
   mutate(envsd = ifelse(week %in% c(1,2,3,4), env_sum$sd[1], env_sum$sd[2]))
 #calculate expected values from the posterior
-pmod_wK_1 <- fitted(mod_wK_1, newdata = ndmod_wK_1, re_formula = dw ~ 0 + Intercept + line*salt*week, probs = c(0.09, 0.91))%>%
-  as_tibble()%>%mutate(ndmod_wK_1, Estimate = Estimate/surface_prop, Q9 = Q9/surface_prop, Q91 = Q91/surface_prop,salt = factor(salt, levels = c(0, 1), labels = c('control', 'salt')))
+(w1 <- epplot(mod_wK_1,w_data1, ndmod_wK_1, "week", "dw_tot", "salt", 
+              'dry weight of total population in tetraploid invasion experiment', 'week', 'dry weight (mg)', facet_var = "line", re_formula = dw ~ 0 + Intercept + line*salt*week, logit = F))
 
-(w1 <- ggplot(pmod_wK_1, aes(x = week, y = Estimate, class = salt))+
-  geom_point(data = w_data1%>%mutate(salt = factor(salt, levels = c(0, 1), labels = c('control', 'salt'))), aes(x = week, y = dw_tot, color = salt), size = 1.4)+
-  geom_line(aes(color = salt), show.legend=FALSE)+
-  geom_ribbon(aes(ymin=Q9, ymax=Q91, color = salt, fill = salt), alpha = 0.25)+
-  labs(title = 'dry weight of the population in tetraploid invasion experiment', y = 'dry weight (mg)', x = 'week', fill = '', color = '')+
-  scale_fill_brewer(palette = 'Dark2')+
-  scale_color_brewer(palette = 'Dark2')+
-  scale_x_continuous(breaks = c(2,4,6,8,10,12))+
-  facet_grid(.~line)+
-  theme(legend.position = "bottom", legend.direction="horizontal",
-        panel.background = element_rect(fill = "white", colour = '#1E64C8'),
-        strip.background = element_rect(fill = "#1E64C8"), strip.text = element_text(colour = 'white', size = 14)))
-  
+
 #with group effects (pop)
 #calculate expected values from the posterior
 pmod_wK_1_pop <- fitted(mod_wK_1, probs = c(0.04, 0.96))%>%
-  as_tibble()%>%mutate(w_data1%>%filter(!is.na(dw)), Estimate = Estimate/surface_prop, Q4 = Q4/surface_prop, Q96 = Q96/surface_prop)
+  as_tibble()%>%mutate(w_data1%>%filter(!is.na(dw)))
 
 ggplot(pmod_wK_1_pop, aes(x = dw_tot, y = Estimate, ymin = Q4, ymax = Q96, color = line))+
   geom_pointrange()+
@@ -882,15 +720,7 @@ ggplot(pmod_wK_1_pop, aes(x = dw_tot, y = Estimate, ymin = Q4, ymax = Q96, color
 # model 2.2: calibrate measured dry weight by substracting mean weight and accounting for the added sd by envelopes #
 #####################################################################################################################
 
-w_data2 <- read.csv('FCM/dry weight2.csv', header = 1)%>%as_tibble()%>%
-  mutate(rep = factor(rep), salt = factor(salt), line = factor(line, labels = c('9242', '9346', '9316', '0013')), size = factor(size), weight = weight*1000)%>%
-  unite("pop", line:salt, remove = FALSE, sep = "")
-str(w_data2)
-
-w_data2 <- w_data2%>%mutate(envmean = ifelse(size == 'big', env_sum$mean[1], env_sum$mean[2]), envsd = ifelse(size == 'big', env_sum$sd[1], env_sum$sd[2]))%>%
-  mutate(dw = weight-envmean, dw_tot = dw/surface_prop, weight_tot = weight/surface_prop, index = 1:n())
-
-bf_wK_2 <- bf(dw ~ L/(1+exp(-k*(week-x0)))*exp(I), 
+bf_wK_2 <- bf(dw_tot ~ L/(1+exp(-k*(week-x0)))*exp(I), 
               nlf(L~exp(logL)),
               nlf(k~exp(logk)),
               logL~ line*salt + (1|pop), 
@@ -900,16 +730,13 @@ bf_wK_2 <- bf(dw ~ L/(1+exp(-k*(week-x0)))*exp(I),
               nl = T, family = "gaussian")
 
 
-
-
-
 get_prior(bf_wK_2, data = w_data2)
 
 mod_wK_2 <-brm(data = w_data2,
                formula = bf_wK_2,
                backend = "cmdstanr",
                prior = c(
-                 set_prior("constant(7.08)", class = "sigma"),
+                 set_prior("constant(92.72)", class = "sigma"), #92.72 = 7.08/surface_prop
                  set_prior("normal(0,0.5)", class = "b", nlpar = c("logk"))
                  ,set_prior("normal(0,0.5)", class = "b", nlpar = c("logL"))
                  ,set_prior("normal(0,0.5)", class = "b", nlpar = c("x0"))
@@ -920,7 +747,7 @@ mod_wK_2 <-brm(data = w_data2,
                  ,set_prior("cauchy(0,1)", class = "sd", nlpar = c("logL"))
                  ,set_prior("cauchy(0,0.1)", class = "sd", nlpar = c("x0"))
                  ,set_prior("cauchy(0,1)", class = "sd", nlpar = c("I"))
-                 ),
+               ),
                iter = 4000, warmup = 1000,
                save_pars = save_pars(latent = TRUE), silent = 0)
 
@@ -930,32 +757,19 @@ load("FCM/fits_/mod_wK_2.rda")
 mod_wK_2$fit
 pp_check(mod_wK_2, resp = "dw")
 
-ndmod_wK_2 <- tibble(week = rep(1:12, each = 8), salt = factor(rep(0:1, 12, each = 4)), line = rep(unique(rdata$line), 24))%>%mutate(envsd = ifelse(week %in% c(1,2,3,4), env_sum$sd[1], env_sum$sd[2]))
+ndmod_wK_2 <- tibble(week = rep(1:12, each = 8), salt = factor(rep(c("control", "salt"), 12, each = 4)), line = rep(unique(rdata$line), 24))%>%mutate(envsd = ifelse(week %in% c(1,2,3,4), env_sum$sd[1], env_sum$sd[2]))
 #calculate expected values from the posterior
-pmod_wK_2 <- fitted(mod_wK_2, newdata = ndmod_wK_2, re_formula = dw ~ 0 + Intercept + line*salt*week, probs = c(0.09, 0.91))%>%
-  as_tibble()%>%mutate(ndmod_wK_2, Estimate = Estimate/surface_prop, Q9 = Q9/surface_prop, Q91 = Q91/surface_prop, salt = factor(salt, levels = c(0, 1), labels = c('control', 'salt')))
-
-(w2 <- ggplot(pmod_wK_2, aes(x = week, y = Estimate, class = salt))+
-  geom_point(data = w_data2%>%mutate(salt = factor(salt, levels = c(0, 1), labels = c('control', 'salt'))), aes(x = week, y = dw_tot, color = salt), size = 1.4)+
-  geom_line(aes(color = salt), show.legend=FALSE)+
-  geom_ribbon(aes(ymin=Q9, ymax=Q91, color = salt, fill = salt), alpha = 0.25)+
-  labs(title = 'dry weight of the population in diploid invasion experiment', y = 'dry weight (mg)', x = 'week', fill = '', color = '')+
-  scale_fill_brewer(palette = 'Dark2')+
-  scale_color_brewer(palette = 'Dark2')+
-  scale_x_continuous(breaks = c(2,4,6,8,10,12))+
-  facet_grid(.~line)+
-  theme(legend.position = "bottom", legend.direction="horizontal",
-        panel.background = element_rect(fill = "white", colour = '#1E64C8'),
-        strip.background = element_rect(fill = "#1E64C8"), strip.text = element_text(colour = 'white', size = 14)))
-
+(w2 <- epplot(mod_wK_2,w_data2, ndmod_wK_2, "week", "dw_tot", "salt", 
+              'dry weight of total population in diploid invasion experiment', 'week', 'dry weight (mg)', facet_var = "line", re_formula = dw ~ 0 + Intercept + line*salt*week, logit = F))
 w1 <- w1+labs(x = "")
+
 #fig S3.1
 (w1 / w2)+ plot_layout(guides = "collect", axis_title = 'collect') & theme(legend.position = "bottom", legend.direction="horizontal")
 
 #with group effects (pop)
 #calculate expected values from the posterior
 pmod_wK_2_pop <- fitted(mod_wK_2, probs = c(0.04, 0.96))%>%
-  as_tibble()%>%mutate(w_data2%>%filter(!is.na(dw)), Estimate = Estimate/surface_prop, Q4 = Q4/surface_prop, Q96 = Q96/surface_prop)
+  as_tibble()%>%mutate(w_data2%>%filter(!is.na(dw)))
 
 #fig. S3.2
 ggplot(pmod_wK_2_pop%>%mutate(salt = factor(salt, levels = c("0", "1"), labels = c("control", "salt"))), aes(x = dw_tot, y = Estimate, ymin = Q4, ymax = Q96, color = line))+
@@ -971,37 +785,24 @@ ggplot(pmod_wK_2_pop%>%mutate(salt = factor(salt, levels = c("0", "1"), labels =
 # Model 3: Count to Weight conversion #
 #######################################
 
-cw_data <- read.csv('FCM/countweight.csv', header = T)%>%as_tibble()%>%mutate(rep = factor(rep), ploidy = factor(ploidy, labels = c('2n', '4n')))%>%rename(dw = dry.weight)%>%
-  mutate(dwmg = dw*1000, line = factor(line))
-str(cw_data)
-
-ggplot(cw_data, aes(x = count, y = dwmg))+
-  geom_point(aes(color = ploidy))+
-  geom_smooth(method = "lm", aes(color = ploidy))+
-  facet_grid(.~line)
-
-
 bf_cw <- bf(dwmg ~ 0+ count*line*ploidy)
 
 get_prior(bf_cw, data = cw_data)
 p_cw <- c(
-  set_prior("normal(0,1)", class = "b", coef = c('count', 'count:lineB', 'count:lineC', 'count:lineD', 'count:ploidy4n', 'count:lineB:ploidy4n', 'count:lineC:ploidy4n', 'count:lineD:ploidy4n')),
-  set_prior("constant(0)", class = "b", coef = c('lineA', 'lineB', 'lineC', 'lineD', 'ploidy4n', 'lineB:ploidy4n', 'lineC:ploidy4n', 'lineD:ploidy4n')),
+  set_prior("normal(0,1)", class = "b", coef = c('count', 'count:line0013', 'count:line9316', 'count:line9346', 'count:ploidy4n', 'count:line0013:ploidy4n', 'count:line9316:ploidy4n', 'count:line9346:ploidy4n')),
+  set_prior("constant(0)", class = "b", coef = c('line0013', 'line9316', 'line9346', 'line9242', 'ploidy4n', 'line0013:ploidy4n', 'line9316:ploidy4n', 'line9346:ploidy4n')),
   set_prior("cauchy(0,1)", class = "sigma"))
 
 
 mod_cw <- brm(bf_cw,
-               data = cw_data, backend = "cmdstanr",
-               prior = p_cw,
-               iter = 4000, chains = 4
+              data = cw_data, backend = "cmdstanr",
+              prior = p_cw,
+              iter = 4000, chains = 4
 )
 save(mod_cw, file = "FCM/fits/mod_cw.rda")
 load('FCM/fits/mod_cw.rda')
 
 pp_check(mod_cw)
-## NA warning is normal, remember that it can only check against calibration data here, since it's NA in the input for experiment data
-
-summary(mod_cw)
 mod_cw$fit
 
 nd_cw <- tibble(unique(cw_data[c('line', 'ploidy', 'count')]))%>%rbind(unique(cw_data[c('line', 'ploidy')])%>%mutate(count = 0))
@@ -1011,21 +812,25 @@ pmod_cw <- fitted(mod_cw, newdata = nd_cw, probs = c(0.09, 0.91))%>%
 
 #fig. S4.1
 ggplot(pmod_cw%>%mutate(line = factor(line, labels = c("9242", "9346", "9316", "0013"))), aes(x = count, y = Estimate, class = ploidy))+
-  geom_point(data = cw_data%>%mutate(line = factor(line, labels = c("9242", "9346", "9316", "0013"))), aes(x = count, y = dwmg, color = ploidy), size = 1.4)+
+  geom_point(data = cw_data, aes(x = count, y = dwmg, color = ploidy), size = 1.4)+
   geom_line(aes(color = ploidy), show.legend=FALSE)+
   geom_ribbon(aes(ymin=Q9, ymax=Q91, color = ploidy, fill = ploidy), alpha = 0.25)+
   labs(title = 'duckweed weight', y = 'weight (mg)', x = 'number of individuals')+
   facet_grid(.~line)
 
+epplot(mod_cw, cw_data%>%mutate(line = factor(line, labels = c("9242", "9346", "9316", "0013"))), nd_cw, "count", "dwmg", "ploidy", 
+       'count-to-weight conversion', 'count', 'dw (mg)', facet_var = "line", logit = F)
+
+
 #posterior draws of weight conversion
 cs_long <- as_draws_df(mod_cw)%>%as_tibble()%>%mutate(A2n = b_count, 
-                                                       B2n = A2n + .$"b_count:lineB", 
-                                                       C2n = A2n + .$"b_count:lineC", 
-                                                       D2n = A2n + .$"b_count:lineD", 
-                                                       A4n = A2n + .$"b_count:ploidy4n", 
-                                                       B4n = A4n + .$"b_count:lineB" + .$"b_count:lineB:ploidy4n", 
-                                                       C4n = A4n + .$"b_count:lineC" + .$"b_count:lineC:ploidy4n", 
-                                                       D4n = A4n + .$"b_count:lineD" + .$"b_count:lineD:ploidy4n")%>%
+                                                      B2n = A2n + .$"b_count:line9346", 
+                                                      C2n = A2n + .$"b_count:line9316", 
+                                                      D2n = A2n + .$"b_count:line0013", 
+                                                      A4n = A2n + .$"b_count:ploidy4n", 
+                                                      B4n = A4n + .$"b_count:line9346" + .$"b_count:line9346:ploidy4n", 
+                                                      C4n = A4n + .$"b_count:line9316" + .$"b_count:line9316:ploidy4n", 
+                                                      D4n = A4n + .$"b_count:line0013" + .$"b_count:line0013:ploidy4n")%>%
   select(A2n, B2n, C2n, D2n, A4n, B4n, C4n, D4n)
 
 #mean weight conversion
@@ -1068,7 +873,7 @@ mod_wK_1_samps <- fitted(mod_wK_1, summary = F)%>%as_tibble()%>%slice_sample(n =
   mutate(slice(w_data1%>%filter(!is.na(dw)), rep(1:nrow(w_data2), nsamps)))
 
 
-est_pop_1_ <- full_join(impp_long, mod_wK_1_samps%>%select(-datapoint), by = c("pop", "week", "salt", "line", "rep"))%>%mutate(totaldw = dw_est/surface_prop, totalN = totaldw/cstotal, dip = q*totalN, tet = p*totalN)
+est_pop_1_ <- full_join(impp_long, mod_wK_1_samps%>%select(-datapoint), by = c("pop", "week", "salt", "line", "rep"))%>%mutate(totaldw = dw_est, totalN = totaldw/cstotal, dip = q*totalN, tet = p*totalN)
 est_pop_1 <- est_pop_1_%>%filter(!is.na(datapoint))%>%pivot_longer(c(dip, tet), names_to = "ploidy", values_to = "population_size")%>%
   group_by(datapoint, ploidy)%>%summarise(mean = mean(population_size, na.rm = T), Q4 = quantile(population_size, 0.04, na.rm = T), Q96 = quantile(population_size, 0.96, na.rm = T), sd = sd(population_size, na.rm = T))%>%
   ungroup()%>%mutate(slice(rdata_1_nocal, rep(1:nrow(rdata_1_nocal), each = 2)))
@@ -1105,7 +910,8 @@ mod_wK_2_samps <- fitted(mod_wK_2, summary = F)%>%as_tibble()%>%slice_sample(n =
   mutate(slice(w_data2%>%filter(!is.na(dw)), rep(1:nrow(w_data2), nsamps)))
 
 #combine total dry weight with average individual weight to calculate total population size and cytotype population sizes
-est_pop_2_ <- full_join(impp_long_2, mod_wK_2_samps%>%select(-datapoint), by = c("pop", "week", "salt", "line", "rep"))%>%mutate(totaldw = dw_est/surface_prop, totalN = totaldw/cstotal, dip = q*totalN, tet = p*totalN)
+est_pop_2_ <- full_join(impp_long_2, mod_wK_2_samps%>%select(-datapoint), by = c("pop", "week", "salt", "line", "rep"))%>%
+  mutate(totaldw = dw_est, totalN = totaldw/cstotal, dip = q*totalN, tet = p*totalN)
 #summarize to mean and [0.04, 0.96] likelihood interval per data point
 est_pop_2 <- est_pop_2_%>%filter(!is.na(datapoint))%>%pivot_longer(c(dip, tet), names_to = "ploidy", values_to = "population_size")%>%group_by(factor(datapoint), ploidy)%>%summarise(mean = mean(population_size, na.rm = T), Q4 = quantile(population_size, 0.04, na.rm = T), Q96 = quantile(population_size, 0.96, na.rm = T), sd = sd(population_size, na.rm = T))%>%
   ungroup()%>%mutate(slice(rdata_2_nocal, rep(1:nrow(rdata_2_nocal), each = 2)))
@@ -1312,7 +1118,7 @@ ggplot(fit_de_2, aes(x = week, y = mean, color = ploidy))+
   geom_line(aes(y = Estimate))+
   geom_ribbon(aes(ymin = Q9, ymax = Q91, fill = ploidy), alpha = 0.25)+
   labs(title = 'estimated population growth and decline in invasion tests', x = "time (weeks)", y = 'population size')+
-  ylim(c(-500, 3800))+
+  ylim(c(-50, 3800))+
   facet_grid(salt~line)+
   theme(legend.position = "bottom", legend.direction="horizontal",
         panel.background = element_rect(fill = "white", colour = '#1E64C8'),
@@ -1335,6 +1141,8 @@ post_par_pop_ <- fitted(de_mod_2, newdata = nd_par_pop, nlpar = "atet", summary 
 #table of average coexistence parameters
 write.csv(post_par_pop_%>%group_by(line, salt, week)%>%summarize(across(c('rt', 'rd', 'at', 'atd', 'adt', 'ad'), mean))%>%ungroup%>%mutate(delta_r = rt-rd), 
           file = "FCM/odecoefs.csv")
+
+p_coexistence_2 <- post_par_pop%>%mutate(ND = 1-sqrt(atd*adt/at/ad), RFD = sqrt(ad*adt/atd/at),RFD_ = ifelse(RFD<1, RFD, 1/RFD))
 
 #coexistence parameter estimation per strain-treatmen combination
 p_coexistence_2%>%ggplot(aes(x = ND, y = RFD))+
@@ -1395,4 +1203,3 @@ ggplot(coex_line, aes(x = SD, y = FD_e))+
   theme(legend.position = c(0.7, 0.15), legend.direction = "horizontal",legend.background = element_rect(fill=NA), legend.title = element_text(colour="white" , face = "bold"),
         panel.background = element_rect(fill = "white", colour = '#1E64C8'),
         strip.background = element_rect(fill = "#1E64C8"), strip.text = element_text(colour = 'white', size = 14))
-
